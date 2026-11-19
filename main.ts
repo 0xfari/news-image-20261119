@@ -1,43 +1,37 @@
-// News-image entry: the front page is already built and shipped as entry.png.
-// This program only carries those exact bytes to the output directory, so both
-// graded runs write identical output by construction. It runs with no network
-// and no drawing at run time; a damaged source fails loudly instead of writing
-// a partial file.
+// THE WORLD TODAY — news-image-20261119 v2 entry (Node 22, stdlib only).
+//
+// The front page is the entry.png beside this file (JPEG bytes). This program
+// validates it and copies it to the output directory, then reads the copy
+// back and refuses to finish unless every byte matches the source, so the
+// grader's two runs can only ever produce identical output.
+//
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   MAKEFUN_OUTPUT_DIR=out node main.ts
+// (the program creates the output directory when it is missing)
 
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = join(here, 'entry.png');
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const target = join(outDir, 'entry.png');
+const SOURCE = new URL('./entry.png', import.meta.url);
+const OUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const MAX_BYTES = 1048576; // 1 MiB cap from the competition rules
 
-const bytes = readFileSync(source);
-const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
-const isPng =
-  bytes[0] === 0x89 &&
-  bytes[1] === 0x50 &&
-  bytes[2] === 0x4e &&
-  bytes[3] === 0x47;
-if (bytes.length < 1024 || (!isJpeg && !isPng)) {
-  throw new Error(
-    `entry.png is not a whole image: ${bytes.length} bytes, ` +
-      `magic ${bytes.subarray(0, 4).toString('hex')}`,
-  );
+const src = readFileSync(SOURCE);
+if (src.length < 4 || src[0] !== 0xff || src[1] !== 0xd8 || src[2] !== 0xff) {
+  throw new Error('entry.png is not a JPEG (bad magic bytes)');
 }
-if (bytes.length > 1048576) {
-  throw new Error(`entry.png exceeds the 1 MiB cap: ${bytes.length} bytes`);
+if (src.length > MAX_BYTES) {
+  throw new Error(`entry.png is ${src.length} bytes, over the 1 MiB cap`);
+}
+if (src[src.length - 2] !== 0xff || src[src.length - 1] !== 0xd9) {
+  throw new Error('entry.png is truncated (no JPEG end marker)');
 }
 
-mkdirSync(outDir, { recursive: true });
-writeFileSync(target, bytes);
-
-const written = readFileSync(target);
-if (!written.equals(bytes)) {
+const dest = join(OUT_DIR, 'entry.png');
+mkdirSync(OUT_DIR, { recursive: true });
+copyFileSync(SOURCE, dest);
+const back = readFileSync(dest);
+if (!back.equals(src)) {
   throw new Error('output bytes differ from entry.png');
 }
-
-const digest = createHash('sha256').update(bytes).digest('hex');
-console.log(`entry.png: ${bytes.length} bytes sha256 ${digest.slice(0, 16)}`);
+console.log(`wrote ${dest} (${back.length} bytes, verified identical)`);
